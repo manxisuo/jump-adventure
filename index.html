@@ -2,32 +2,152 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
     <title>跳跃冒险 - Jump Adventure</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎮</text></svg>">
     <style>
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
         }
-        body {
+        html, body {
             background: #1a1a2e;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            font-family: 'Microsoft YaHei', 'SimHei', sans-serif;
+            touch-action: none;
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
+            overscroll-behavior: none;
+        }
+        #gameContainer {
             display: flex;
             justify-content: center;
             align-items: center;
-            min-height: 100vh;
-            overflow: hidden;
-            font-family: 'Microsoft YaHei', 'SimHei', sans-serif;
+            width: 100%;
+            height: 100%;
+            position: relative;
         }
         #gameCanvas {
             background: #16213e;
             display: block;
             image-rendering: pixelated;
+            touch-action: none;
+        }
+        #touchControls {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 150px;
+            pointer-events: none;
+            display: none;
+            z-index: 100;
+        }
+        #touchControls.visible {
+            display: block;
+        }
+        .touch-btn {
+            position: absolute;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.15);
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 28px;
+            color: rgba(255, 255, 255, 0.6);
+            pointer-events: auto;
+            touch-action: none;
+            transition: background 0.1s, transform 0.1s;
+        }
+        .touch-btn.active {
+            background: rgba(255, 255, 255, 0.35);
+            transform: scale(0.95);
+        }
+        #btnLeft {
+            width: 70px;
+            height: 70px;
+            left: 20px;
+            bottom: 60px;
+        }
+        #btnRight {
+            width: 70px;
+            height: 70px;
+            left: 100px;
+            bottom: 60px;
+        }
+        #btnJump {
+            width: 90px;
+            height: 90px;
+            right: 30px;
+            bottom: 50px;
+        }
+        #btnPause {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            width: 44px;
+            height: 44px;
+            border-radius: 8px;
+            background: rgba(0, 0, 0, 0.3);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            font-size: 20px;
+            color: rgba(255, 255, 255, 0.7);
+            pointer-events: auto;
+            touch-action: none;
+            z-index: 101;
+        }
+        #btnPause.visible {
+            display: flex;
+        }
+        #landscapeHint {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.85);
+            padding: 20px 30px;
+            border-radius: 12px;
+            color: #fff;
+            text-align: center;
+            font-size: 16px;
+            z-index: 200;
+            display: none;
+        }
+        #landscapeHint.visible {
+            display: block;
+        }
+        #landscapeHint .icon {
+            font-size: 40px;
+            margin-bottom: 10px;
         }
     </style>
 </head>
 <body>
-    <canvas id="gameCanvas"></canvas>
+    <div id="gameContainer">
+        <canvas id="gameCanvas"></canvas>
+        <div id="touchControls">
+            <div id="btnLeft" class="touch-btn">◀</div>
+            <div id="btnRight" class="touch-btn">▶</div>
+            <div id="btnJump" class="touch-btn">⬆</div>
+        </div>
+        <div id="btnPause">⏸</div>
+        <div id="landscapeHint">
+            <div class="icon">📱↻</div>
+            <div>建议横屏游玩</div>
+            <div style="font-size: 12px; margin-top: 8px; opacity: 0.7;">点击继续</div>
+        </div>
+    </div>
     <script src="game.js"></script>
 </body>
 </html>

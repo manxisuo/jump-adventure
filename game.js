@@ -1,5 +1,5 @@
 // 跳跃冒险 - Jump Adventure
-// A complete 2D platformer game
+// A complete 2D platformer game with touch support
 
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
@@ -40,7 +40,7 @@ const DIFFICULTY = {
 };
 
 // Game state
-let gameState = 'menu'; // menu, playing, levelComplete, gameOver
+let gameState = 'menu'; // menu, playing, paused, levelComplete, gameOver
 let currentDifficulty = 'normal';
 let currentLevel = 0;
 let player = null;
@@ -57,37 +57,301 @@ let totalCoins = 0;
 let deaths = 0;
 let startTime = 0;
 let elapsedTime = 0;
+let pausedTime = 0;
+let pauseStartTime = 0;
 let lives = 3;
 
 // Input handling
 const keys = {};
 let jumpBufferCounter = 0;
 
+// Touch support
+let isTouchDevice = false;
+let touchControls = {
+    left: false,
+    right: false,
+    jump: false,
+    jumpHeld: false
+};
+let activeTouches = {};
+
 // Canvas scaling
 let scale = 1;
+let dpr = 1;
 const BASE_WIDTH = 800;
 const BASE_HEIGHT = 600;
 
+// Touch control elements
+const touchControlsEl = document.getElementById('touchControls');
+const btnLeft = document.getElementById('btnLeft');
+const btnRight = document.getElementById('btnRight');
+const btnJump = document.getElementById('btnJump');
+const btnPause = document.getElementById('btnPause');
+const landscapeHint = document.getElementById('landscapeHint');
+
+// Detect touch device
+function detectTouchDevice() {
+    isTouchDevice = ('ontouchstart' in window) || 
+                    (navigator.maxTouchPoints > 0) || 
+                    (navigator.msMaxTouchPoints > 0);
+    
+    if (isTouchDevice) {
+        touchControlsEl.classList.add('visible');
+    } else {
+        touchControlsEl.classList.remove('visible');
+    }
+    
+    updatePauseButtonVisibility();
+}
+
+function updatePauseButtonVisibility() {
+    if (isTouchDevice && (gameState === 'playing' || gameState === 'paused')) {
+        btnPause.classList.add('visible');
+    } else {
+        btnPause.classList.remove('visible');
+    }
+}
+
+function checkOrientation() {
+    if (!isTouchDevice) {
+        landscapeHint.classList.remove('visible');
+        return;
+    }
+    
+    const isPortrait = window.innerHeight > window.innerWidth;
+    const isTooSmall = window.innerWidth < 500;
+    
+    if (isPortrait && isTooSmall && gameState === 'menu') {
+        landscapeHint.classList.add('visible');
+    } else {
+        landscapeHint.classList.remove('visible');
+    }
+}
+
 function resizeCanvas() {
+    dpr = window.devicePixelRatio || 1;
     const windowWidth = window.innerWidth;
     const windowHeight = window.innerHeight;
     const scaleX = windowWidth / BASE_WIDTH;
     const scaleY = windowHeight / BASE_HEIGHT;
     scale = Math.min(scaleX, scaleY);
     
-    canvas.width = BASE_WIDTH;
-    canvas.height = BASE_HEIGHT;
+    canvas.width = BASE_WIDTH * dpr;
+    canvas.height = BASE_HEIGHT * dpr;
     canvas.style.width = `${BASE_WIDTH * scale}px`;
     canvas.style.height = `${BASE_HEIGHT * scale}px`;
+    
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    
+    checkOrientation();
+    detectTouchDevice();
 }
 
 window.addEventListener('resize', resizeCanvas);
+window.addEventListener('orientationchange', () => {
+    setTimeout(resizeCanvas, 100);
+});
 resizeCanvas();
 
-// Input events
+// Prevent default touch behaviors on the entire document
+document.addEventListener('touchstart', (e) => {
+    if (e.target.closest('#gameContainer')) {
+        e.preventDefault();
+    }
+}, { passive: false });
+
+document.addEventListener('touchmove', (e) => {
+    if (e.target.closest('#gameContainer')) {
+        e.preventDefault();
+    }
+}, { passive: false });
+
+document.addEventListener('touchend', (e) => {
+    if (e.target.closest('#gameContainer')) {
+        e.preventDefault();
+    }
+}, { passive: false });
+
+// Prevent context menu
+document.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+});
+
+// Hide landscape hint on tap
+landscapeHint.addEventListener('click', () => {
+    landscapeHint.classList.remove('visible');
+});
+landscapeHint.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    landscapeHint.classList.remove('visible');
+}, { passive: false });
+
+// Touch control handlers
+function handleTouchStart(e) {
+    e.preventDefault();
+    
+    for (const touch of e.changedTouches) {
+        const target = document.elementFromPoint(touch.clientX, touch.clientY);
+        
+        if (target === btnLeft) {
+            activeTouches[touch.identifier] = 'left';
+            touchControls.left = true;
+            btnLeft.classList.add('active');
+        } else if (target === btnRight) {
+            activeTouches[touch.identifier] = 'right';
+            touchControls.right = true;
+            btnRight.classList.add('active');
+        } else if (target === btnJump) {
+            activeTouches[touch.identifier] = 'jump';
+            touchControls.jump = true;
+            touchControls.jumpHeld = true;
+            btnJump.classList.add('active');
+            jumpBufferCounter = JUMP_BUFFER_TIME;
+        } else if (target === btnPause) {
+            activeTouches[touch.identifier] = 'pause';
+            togglePause();
+        }
+    }
+}
+
+function handleTouchMove(e) {
+    e.preventDefault();
+    
+    for (const touch of e.changedTouches) {
+        const target = document.elementFromPoint(touch.clientX, touch.clientY);
+        const currentBtn = activeTouches[touch.identifier];
+        
+        if (currentBtn === 'left' && target !== btnLeft) {
+            touchControls.left = false;
+            btnLeft.classList.remove('active');
+            if (target === btnRight) {
+                activeTouches[touch.identifier] = 'right';
+                touchControls.right = true;
+                btnRight.classList.add('active');
+            } else {
+                delete activeTouches[touch.identifier];
+            }
+        } else if (currentBtn === 'right' && target !== btnRight) {
+            touchControls.right = false;
+            btnRight.classList.remove('active');
+            if (target === btnLeft) {
+                activeTouches[touch.identifier] = 'left';
+                touchControls.left = true;
+                btnLeft.classList.add('active');
+            } else {
+                delete activeTouches[touch.identifier];
+            }
+        } else if (currentBtn === 'jump' && target !== btnJump) {
+            touchControls.jump = false;
+            touchControls.jumpHeld = false;
+            btnJump.classList.remove('active');
+            delete activeTouches[touch.identifier];
+        }
+    }
+}
+
+function handleTouchEnd(e) {
+    e.preventDefault();
+    
+    for (const touch of e.changedTouches) {
+        const btn = activeTouches[touch.identifier];
+        
+        if (btn === 'left') {
+            touchControls.left = false;
+            btnLeft.classList.remove('active');
+        } else if (btn === 'right') {
+            touchControls.right = false;
+            btnRight.classList.remove('active');
+        } else if (btn === 'jump') {
+            touchControls.jump = false;
+            touchControls.jumpHeld = false;
+            btnJump.classList.remove('active');
+        }
+        
+        delete activeTouches[touch.identifier];
+    }
+}
+
+btnLeft.addEventListener('touchstart', handleTouchStart, { passive: false });
+btnRight.addEventListener('touchstart', handleTouchStart, { passive: false });
+btnJump.addEventListener('touchstart', handleTouchStart, { passive: false });
+btnPause.addEventListener('touchstart', handleTouchStart, { passive: false });
+
+document.addEventListener('touchmove', handleTouchMove, { passive: false });
+document.addEventListener('touchend', handleTouchEnd, { passive: false });
+document.addEventListener('touchcancel', handleTouchEnd, { passive: false });
+
+// Canvas touch handler for menus and UI
+function getCanvasTouchPos(touch) {
+    const rect = canvas.getBoundingClientRect();
+    return {
+        x: (touch.clientX - rect.left) / scale,
+        y: (touch.clientY - rect.top) / scale
+    };
+}
+
+canvas.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    
+    if (e.touches.length === 0) return;
+    const pos = getCanvasTouchPos(e.touches[0]);
+    
+    handleCanvasTap(pos.x, pos.y);
+}, { passive: false });
+
+canvas.addEventListener('click', (e) => {
+    if (isTouchDevice) return;
+    
+    const rect = canvas.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / scale;
+    const y = (e.clientY - rect.top) / scale;
+    
+    handleCanvasTap(x, y);
+});
+
+function handleCanvasTap(x, y) {
+    if (gameState === 'menu') {
+        const diffs = Object.keys(DIFFICULTY);
+        for (let i = 0; i < diffs.length; i++) {
+            const btnY = 280 + i * 60;
+            if (x >= BASE_WIDTH / 2 - 120 && x <= BASE_WIDTH / 2 + 120 &&
+                y >= btnY - 25 && y <= btnY + 25) {
+                currentDifficulty = diffs[i];
+                return;
+            }
+        }
+        
+        if (y >= 450 && y <= 600) {
+            startGame();
+        }
+    } else if (gameState === 'paused') {
+        if (x >= BASE_WIDTH / 2 - 100 && x <= BASE_WIDTH / 2 + 100) {
+            if (y >= 280 && y <= 330) {
+                togglePause();
+            } else if (y >= 350 && y <= 400) {
+                restartLevel();
+            } else if (y >= 420 && y <= 470) {
+                gameState = 'menu';
+                updatePauseButtonVisibility();
+            }
+        }
+    } else if (gameState === 'gameOver') {
+        if (y >= 380 && y <= 460) {
+            restartLevel();
+        }
+    } else if (gameState === 'levelComplete') {
+        if (y >= 440 && y <= 520) {
+            nextLevel();
+        } else if (y >= 500 && y <= 560) {
+            restartLevel();
+        }
+    }
+}
+
+// Keyboard input events
 document.addEventListener('keydown', (e) => {
     keys[e.code] = true;
-    if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(e.code)) {
+    if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'Escape', 'KeyP'].includes(e.code)) {
         e.preventDefault();
     }
     
@@ -95,7 +359,6 @@ document.addEventListener('keydown', (e) => {
         jumpBufferCounter = JUMP_BUFFER_TIME;
     }
     
-    // Menu navigation
     if (gameState === 'menu') {
         if (e.code === 'ArrowUp' || e.code === 'KeyW') {
             const diffs = Object.keys(DIFFICULTY);
@@ -112,7 +375,18 @@ document.addEventListener('keydown', (e) => {
         }
     }
     
-    // Restart options
+    if (gameState === 'playing') {
+        if (e.code === 'Escape' || e.code === 'KeyP') {
+            togglePause();
+        }
+    }
+    
+    if (gameState === 'paused') {
+        if (e.code === 'Escape' || e.code === 'KeyP') {
+            togglePause();
+        }
+    }
+    
     if (gameState === 'gameOver') {
         if (e.code === 'KeyR') {
             restartLevel();
@@ -161,10 +435,10 @@ class Player {
         const friction = 0.85;
         const airControl = 0.3;
         
-        // Horizontal movement
+        // Horizontal movement (keyboard + touch)
         let moveInput = 0;
-        if (keys['ArrowLeft'] || keys['KeyA']) moveInput -= 1;
-        if (keys['ArrowRight'] || keys['KeyD']) moveInput += 1;
+        if (keys['ArrowLeft'] || keys['KeyA'] || touchControls.left) moveInput -= 1;
+        if (keys['ArrowRight'] || keys['KeyD'] || touchControls.right) moveInput += 1;
         
         if (moveInput !== 0) {
             this.facingRight = moveInput > 0;
@@ -190,8 +464,8 @@ class Player {
             this.coyoteCounter--;
         }
         
-        // Jump input check
-        const jumpPressed = keys['Space'] || keys['ArrowUp'] || keys['KeyW'];
+        // Jump input check (keyboard + touch)
+        const jumpPressed = keys['Space'] || keys['ArrowUp'] || keys['KeyW'] || touchControls.jumpHeld;
         
         // Jump (with variable height)
         if (jumpBufferCounter > 0 && this.jumpReleased) {
@@ -371,6 +645,7 @@ class Player {
         
         if (lives <= 0) {
             gameState = 'gameOver';
+            updatePauseButtonVisibility();
         } else {
             this.respawn();
         }
@@ -902,7 +1177,9 @@ function startGame() {
     lives = DIFFICULTY[currentDifficulty].lives;
     deaths = 0;
     startTime = Date.now();
+    pausedTime = 0;
     loadLevel(currentLevel);
+    updatePauseButtonVisibility();
 }
 
 function restartLevel() {
@@ -910,12 +1187,26 @@ function restartLevel() {
     lives = DIFFICULTY[currentDifficulty].lives;
     deaths = 0;
     startTime = Date.now();
+    pausedTime = 0;
     loadLevel(currentLevel);
+    updatePauseButtonVisibility();
+}
+
+function togglePause() {
+    if (gameState === 'playing') {
+        gameState = 'paused';
+        pauseStartTime = Date.now();
+    } else if (gameState === 'paused') {
+        gameState = 'playing';
+        pausedTime += Date.now() - pauseStartTime;
+    }
+    updatePauseButtonVisibility();
 }
 
 function levelComplete() {
     gameState = 'levelComplete';
-    elapsedTime = Date.now() - startTime;
+    elapsedTime = Date.now() - startTime - pausedTime;
+    updatePauseButtonVisibility();
 }
 
 function nextLevel() {
@@ -926,8 +1217,10 @@ function nextLevel() {
     lives = DIFFICULTY[currentDifficulty].lives;
     deaths = 0;
     startTime = Date.now();
+    pausedTime = 0;
     loadLevel(currentLevel);
     gameState = 'playing';
+    updatePauseButtonVisibility();
 }
 
 function updateCamera() {
@@ -1022,7 +1315,7 @@ function drawUI() {
     ctx.fillText(`第 ${currentLevel + 1} 关`, BASE_WIDTH / 2 - 25, 30);
     
     // Time
-    const time = Math.floor((Date.now() - startTime) / 1000);
+    const time = Math.floor((Date.now() - startTime - pausedTime) / 1000);
     const minutes = Math.floor(time / 60);
     const seconds = time % 60;
     ctx.fillText(`${minutes}:${seconds.toString().padStart(2, '0')}`, BASE_WIDTH / 2 - 20, 52);
@@ -1077,14 +1370,62 @@ function drawMenu() {
     // Controls hint
     ctx.fillStyle = '#6b7280';
     ctx.font = '16px Microsoft YaHei, SimHei, sans-serif';
-    ctx.fillText('↑↓ 选择难度  |  Enter/空格 开始游戏', BASE_WIDTH / 2, 480);
+    if (isTouchDevice) {
+        ctx.fillText('点击难度选择  |  点击下方开始游戏', BASE_WIDTH / 2, 480);
+    } else {
+        ctx.fillText('↑↓ 选择难度  |  Enter/空格 开始游戏', BASE_WIDTH / 2, 480);
+    }
     
     ctx.fillStyle = '#9ca3af';
     ctx.font = '18px Microsoft YaHei, SimHei, sans-serif';
     ctx.fillText('游戏操作', BASE_WIDTH / 2, 520);
     ctx.font = '14px Microsoft YaHei, SimHei, sans-serif';
-    ctx.fillText('← → 或 A D 移动  |  ↑ W 空格 跳跃（可二段跳）', BASE_WIDTH / 2, 545);
+    if (isTouchDevice) {
+        ctx.fillText('◀▶ 移动  |  ⬆ 跳跃（可二段跳，长按跳更高）', BASE_WIDTH / 2, 545);
+    } else {
+        ctx.fillText('← → 或 A D 移动  |  ↑ W 空格 跳跃（可二段跳）', BASE_WIDTH / 2, 545);
+    }
     ctx.fillText('收集金币，避开危险，到达终点旗帜！', BASE_WIDTH / 2, 570);
+    
+    ctx.textAlign = 'left';
+}
+
+function drawPaused() {
+    // Semi-transparent overlay
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    ctx.fillRect(0, 0, BASE_WIDTH, BASE_HEIGHT);
+    
+    ctx.textAlign = 'center';
+    
+    // Title
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 48px Microsoft YaHei, SimHei, sans-serif';
+    ctx.fillText('暂停', BASE_WIDTH / 2, 200);
+    
+    // Buttons
+    const buttons = [
+        { text: '继续游戏', y: 300 },
+        { text: '重新开始', y: 370 },
+        { text: '返回菜单', y: 440 }
+    ];
+    
+    buttons.forEach(btn => {
+        ctx.fillStyle = 'rgba(78, 205, 196, 0.3)';
+        ctx.fillRect(BASE_WIDTH / 2 - 100, btn.y - 25, 200, 50);
+        ctx.strokeStyle = '#4ecdc4';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(BASE_WIDTH / 2 - 100, btn.y - 25, 200, 50);
+        
+        ctx.fillStyle = '#fff';
+        ctx.font = '22px Microsoft YaHei, SimHei, sans-serif';
+        ctx.fillText(btn.text, BASE_WIDTH / 2, btn.y + 8);
+    });
+    
+    if (!isTouchDevice) {
+        ctx.fillStyle = '#9ca3af';
+        ctx.font = '16px Microsoft YaHei, SimHei, sans-serif';
+        ctx.fillText('按 P 或 Esc 继续', BASE_WIDTH / 2, 520);
+    }
     
     ctx.textAlign = 'left';
 }
@@ -1099,7 +1440,7 @@ function drawLevelComplete() {
     // Title
     ctx.fillStyle = '#fbbf24';
     ctx.font = 'bold 48px Microsoft YaHei, SimHei, sans-serif';
-    ctx.fillText('关卡完成！', BASE_WIDTH / 2, 150);
+    ctx.fillText('关卡完成！', BASE_WIDTH / 2, 120);
     
     // Stats
     ctx.fillStyle = '#fff';
@@ -1108,9 +1449,9 @@ function drawLevelComplete() {
     const minutes = Math.floor(elapsedTime / 60000);
     const seconds = Math.floor((elapsedTime % 60000) / 1000);
     
-    ctx.fillText(`收集金币: ${collectedCoins} / ${totalCoins}`, BASE_WIDTH / 2, 230);
-    ctx.fillText(`用时: ${minutes}:${seconds.toString().padStart(2, '0')}`, BASE_WIDTH / 2, 280);
-    ctx.fillText(`死亡次数: ${deaths}`, BASE_WIDTH / 2, 330);
+    ctx.fillText(`收集金币: ${collectedCoins} / ${totalCoins}`, BASE_WIDTH / 2, 200);
+    ctx.fillText(`用时: ${minutes}:${seconds.toString().padStart(2, '0')}`, BASE_WIDTH / 2, 250);
+    ctx.fillText(`死亡次数: ${deaths}`, BASE_WIDTH / 2, 300);
     
     // Rating
     let rating = '⭐';
@@ -1118,13 +1459,33 @@ function drawLevelComplete() {
     else if (collectedCoins >= totalCoins * 0.7 && deaths <= 2) rating = '⭐⭐';
     
     ctx.font = '36px Microsoft YaHei, SimHei, sans-serif';
-    ctx.fillText(rating, BASE_WIDTH / 2, 400);
+    ctx.fillText(rating, BASE_WIDTH / 2, 370);
     
-    // Instructions
+    // Buttons
+    ctx.fillStyle = 'rgba(78, 205, 196, 0.3)';
+    ctx.fillRect(BASE_WIDTH / 2 - 100, 430, 200, 50);
+    ctx.strokeStyle = '#4ecdc4';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(BASE_WIDTH / 2 - 100, 430, 200, 50);
+    
+    ctx.fillStyle = '#fff';
+    ctx.font = '22px Microsoft YaHei, SimHei, sans-serif';
+    ctx.fillText('下一关', BASE_WIDTH / 2, 463);
+    
+    ctx.fillStyle = 'rgba(156, 163, 175, 0.3)';
+    ctx.fillRect(BASE_WIDTH / 2 - 80, 500, 160, 40);
+    ctx.strokeStyle = '#9ca3af';
+    ctx.strokeRect(BASE_WIDTH / 2 - 80, 500, 160, 40);
+    
     ctx.fillStyle = '#9ca3af';
-    ctx.font = '20px Microsoft YaHei, SimHei, sans-serif';
-    ctx.fillText('按 Enter/空格 进入下一关', BASE_WIDTH / 2, 480);
-    ctx.fillText('按 R 重玩本关', BASE_WIDTH / 2, 510);
+    ctx.font = '18px Microsoft YaHei, SimHei, sans-serif';
+    ctx.fillText('重玩本关', BASE_WIDTH / 2, 527);
+    
+    if (!isTouchDevice) {
+        ctx.fillStyle = '#6b7280';
+        ctx.font = '14px Microsoft YaHei, SimHei, sans-serif';
+        ctx.fillText('Enter/空格 下一关  |  R 重玩', BASE_WIDTH / 2, 570);
+    }
     
     ctx.textAlign = 'left';
 }
@@ -1139,18 +1500,30 @@ function drawGameOver() {
     // Title
     ctx.fillStyle = '#ef4444';
     ctx.font = 'bold 48px Microsoft YaHei, SimHei, sans-serif';
-    ctx.fillText('游戏结束', BASE_WIDTH / 2, 200);
+    ctx.fillText('游戏结束', BASE_WIDTH / 2, 180);
     
     // Stats
     ctx.fillStyle = '#fff';
     ctx.font = '24px Microsoft YaHei, SimHei, sans-serif';
-    ctx.fillText(`收集金币: ${collectedCoins} / ${totalCoins}`, BASE_WIDTH / 2, 280);
-    ctx.fillText(`死亡次数: ${deaths}`, BASE_WIDTH / 2, 330);
+    ctx.fillText(`收集金币: ${collectedCoins} / ${totalCoins}`, BASE_WIDTH / 2, 260);
+    ctx.fillText(`死亡次数: ${deaths}`, BASE_WIDTH / 2, 310);
     
-    // Instructions
-    ctx.fillStyle = '#9ca3af';
-    ctx.font = '20px Microsoft YaHei, SimHei, sans-serif';
-    ctx.fillText('按 R 重新开始', BASE_WIDTH / 2, 420);
+    // Restart button
+    ctx.fillStyle = 'rgba(239, 68, 68, 0.3)';
+    ctx.fillRect(BASE_WIDTH / 2 - 100, 380, 200, 50);
+    ctx.strokeStyle = '#ef4444';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(BASE_WIDTH / 2 - 100, 380, 200, 50);
+    
+    ctx.fillStyle = '#fff';
+    ctx.font = '22px Microsoft YaHei, SimHei, sans-serif';
+    ctx.fillText('重新开始', BASE_WIDTH / 2, 413);
+    
+    if (!isTouchDevice) {
+        ctx.fillStyle = '#9ca3af';
+        ctx.font = '16px Microsoft YaHei, SimHei, sans-serif';
+        ctx.fillText('按 R 重新开始', BASE_WIDTH / 2, 480);
+    }
     
     ctx.textAlign = 'left';
 }
@@ -1175,7 +1548,7 @@ function draw() {
     
     if (gameState === 'menu') {
         drawMenu();
-    } else if (gameState === 'playing' || gameState === 'levelComplete' || gameState === 'gameOver') {
+    } else if (gameState === 'playing' || gameState === 'paused' || gameState === 'levelComplete' || gameState === 'gameOver') {
         drawBackground();
         drawPlatforms();
         
@@ -1200,7 +1573,9 @@ function draw() {
         player.draw();
         drawUI();
         
-        if (gameState === 'levelComplete') {
+        if (gameState === 'paused') {
+            drawPaused();
+        } else if (gameState === 'levelComplete') {
             drawLevelComplete();
         } else if (gameState === 'gameOver') {
             drawGameOver();
@@ -1214,5 +1589,6 @@ function gameLoop() {
     requestAnimationFrame(gameLoop);
 }
 
-// Start the game
+// Initialize and start
+detectTouchDevice();
 gameLoop();
